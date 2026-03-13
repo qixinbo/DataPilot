@@ -114,6 +114,8 @@ class CommonReactAgent:
         user_dict = await decode_jwt_token(user_token)
         task_id = user_dict["id"]
         task_context = {"cancelled": False}
+        if uuid_str:
+            task_id = uuid_str
         self.running_tasks[task_id] = task_context
 
         try:
@@ -301,7 +303,9 @@ class CommonReactAgent:
                 )
 
             # 只有在未取消的情况下才保存记录
-            if not self.running_tasks[task_id]["cancelled"]:
+            # 使用 get 方法安全获取任务状态，防止 KeyError
+            task_state = self.running_tasks.get(task_id)
+            if not task_state or not task_state.get("cancelled", False):
                 await add_user_record(
                     uuid_str,
                     session_id,
@@ -332,7 +336,8 @@ class CommonReactAgent:
             )
         finally:
             # 清理任务记录
-            if task_id in self.running_tasks:
+            # 仅当任务上下文匹配时才清理，防止误删其他并发请求的任务状态
+            if task_id in self.running_tasks and self.running_tasks[task_id] is task_context:
                 del self.running_tasks[task_id]
 
     async def _stream_agent_response(
@@ -341,7 +346,9 @@ class CommonReactAgent:
         """处理agent流式响应的核心逻辑"""
         async for message_chunk, metadata in agent.astream(**stream_args):
             # 检查是否已取消
-            if self.running_tasks[task_id]["cancelled"]:
+            # 使用 get 方法安全获取任务状态，防止 KeyError
+            task_state = self.running_tasks.get(task_id)
+            if not task_state or task_state.get("cancelled", False):
                 await response.write(
                     self._create_response(
                         "\n> 这条消息已停止", "info", DataTypeEnum.ANSWER.value[0]
