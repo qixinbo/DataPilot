@@ -32,9 +32,6 @@ const isInit = ref(true)
 // 是否查看历史消息标识
 const isView = ref(false)
 const currentSidebarTab = ref<'chat' | 'dashboard'>('chat')
-const dashboardVisibleCount = computed(() =>
-  (businessStore.dashboardCharts || []).filter(item => !item.hidden).length,
-)
 
 // 使用 onMounted 生命周期钩子加载历史对话
 // 新增：加载历史对话的状态
@@ -1724,8 +1721,24 @@ const handleHistoryClick = async (item: any) => {
             </div>
           </div>
 
-          <!-- New Chat Button -->
-          <div class="px-6 pb-6">
+          <div class="px-4 pb-3">
+            <div class="bg-[#ECEDEF] rounded-[4px] p-2">
+              <div
+                class="dashboard-entry h-[42px] rounded-[6px] border text-[14px] font-semibold flex items-center justify-between px-3 cursor-pointer transition-all"
+                :class="currentSidebarTab === 'dashboard'
+                  ? 'bg-[#E8EEFF] border-[#C8D8FF] text-[#3B5CFF]'
+                  : 'bg-[#F3F4F6] border-transparent text-[#4A4F59] hover:bg-[#E8EEFF] hover:text-[#3B5CFF]'"
+                @click="openDashboardPanel"
+              >
+                <div class="flex items-center gap-2">
+                  <div class="i-material-symbols:dashboard-outline text-18"></div>
+                  <span>Dashboard</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="px-6 pb-2">
             <div
               v-if="isFocusSearchChat"
               class="h-[40px] flex items-center"
@@ -1746,41 +1759,26 @@ const handleHistoryClick = async (item: any) => {
                 </template>
               </n-input>
             </div>
-            <button
-              v-else
-              class="new-chat-btn group w-full h-[40px] rounded-[8px] bg-white border border-[#E6E6E6] hover:border-[#7E6BF2] text-[#333] hover:text-[#7E6BF2] font-medium text-[14px] flex items-center justify-center gap-2 transition-all duration-300 shadow-sm hover:shadow-[0_2px_12px_rgba(126,107,242,0.1)]"
-              :disabled="stylizingLoading"
-              @click="newChat"
-            >
-              <div class="i-hugeicons:comment-add-01 text-18"></div>
-              <span>新对话</span>
-            </button>
-          </div>
-
-          <div class="px-6 pb-2">
-            <div
-              class="dashboard-entry h-[40px] rounded-[8px] border text-[14px] font-medium flex items-center justify-between px-3 cursor-pointer transition-all"
-              :class="currentSidebarTab === 'dashboard'
-                ? 'bg-[#F2F0FF] border-[#D8D1FF] text-[#5A43D6]'
-                : 'bg-white border-[#E6E6E6] text-[#444] hover:border-[#D8D1FF] hover:text-[#5A43D6]'"
-              @click="openDashboardPanel"
-            >
-              <div class="flex items-center gap-2">
-                <div class="i-material-symbols:dashboard-outline text-18"></div>
-                <span>Dashboard</span>
-              </div>
-              <span class="text-[12px] opacity-70">{{ dashboardVisibleCount }}</span>
-            </div>
           </div>
 
           <!-- Recent Chats Label -->
-          <div class="px-6 py-4 flex justify-between items-center mt-10 ml-10 mb-5">
-            <span class="text-[#7A7A7A] text-[13px] font-semibold tracking-wide history-label">最近对话</span>
-            <div
-              class="i-hugeicons:settings-04 text-18"
-              :class="stylizingLoading ? 'text-[#CCCCCC] cursor-not-allowed' : 'text-[#7A7A7A] cursor-pointer hover:text-gray-600'"
-              @click="openModal"
-            ></div>
+          <div class="px-6 pt-1 pb-4 flex justify-between items-center">
+            <span class="text-[#595D66] text-[13px] font-semibold tracking-wide history-label">Threads ({{ tableData.length }})</span>
+            <div class="flex items-center gap-2">
+              <button
+                class="new-chat-btn h-[36px] min-w-[96px] rounded-[8px] bg-white border border-[#DADDE5] text-[#595D66] hover:text-[#3B5CFF] hover:border-[#AFC4FF] text-[14px] flex items-center justify-center gap-2 px-3 transition-all duration-200"
+                :disabled="stylizingLoading"
+                @click="newChat"
+              >
+                <div class="i-hugeicons:add-01 text-16"></div>
+                <span>New</span>
+              </button>
+              <div
+                class="i-hugeicons:settings-04 text-18"
+                :class="stylizingLoading ? 'text-[#CCCCCC] cursor-not-allowed' : 'text-[#7A7A7A] cursor-pointer hover:text-gray-600'"
+                @click="openModal"
+              ></div>
+            </div>
           </div>
 
           <!-- History List -->
@@ -1799,21 +1797,19 @@ const handleHistoryClick = async (item: any) => {
 
             <TransitionGroup name="list" tag="div" class="relative">
               <div
-                v-for="(item, index) in tableData"
+                v-for="item in tableData"
                 :key="item.uuid"
-                class="history-item px-2 py-3.5 mb-1 rounded-lg cursor-pointer flex items-center justify-between group transition-all duration-200"
+                class="history-item px-3 py-2.5 mb-1 rounded-lg cursor-pointer flex items-center justify-between group transition-all duration-200"
                 :class="currentIndex === item.uuid ? 'bg-[#F2F0FF] text-[#7E6BF2] font-medium' : 'text-[#555] hover:bg-[#EAEBED] hover:text-[#333]'"
                 @click="handleHistoryClick(item)"
               >
                 <div class="flex items-center gap-2 overflow-hidden w-full">
-                  <div class="truncate text-[14px] w-full leading-[1.45] ml-10 mt-10 history-item-text">
+                  <div class="truncate text-[14px] w-full leading-[1.45] history-item-text">
                     {{ item.key || '无标题对话' }}
                   </div>
                 </div>
-                <!-- Attachment Icon Placeholder -->
                 <div
-                  v-if="index % 4 === 0"
-                  class="i-hugeicons:attachment-01 text-[14px] text-[#9ca3af] shrink-0 ml-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                  class="i-hugeicons:more-vertical text-[16px] text-[#9ca3af] shrink-0 ml-2 opacity-70 group-hover:opacity-100 transition-opacity"
                 ></div>
               </div>
             </TransitionGroup>

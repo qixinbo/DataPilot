@@ -35,6 +35,10 @@ const props = defineProps({
     type: Boolean,
     default: true,
   },
+  refreshVersion: {
+    type: Number,
+    default: 0,
+  },
 })
 
 // 自定义事件用于 子父组件传递事件信息
@@ -61,6 +65,10 @@ const data = computed(() => chartData.value?.data || [])
 // 图表容器引用
 const chartContainerRef = ref<HTMLElement | null>(null)
 let chartInstance: Plot<any> | null = null
+let chartResizeObserver: ResizeObserver | null = null
+let renderFrameId: number | null = null
+let renderRetryCount = 0
+let shouldRunStabilizeRender = true
 
 // 表格相关的 computed
 const tableColumns = computed<DataTableColumns<any>>(() => {
@@ -253,6 +261,17 @@ const destroyChart = () => {
   }
 }
 
+const syncChartSize = () => {
+  if (!chartInstance || !chartContainerRef.value) {
+    return
+  }
+  const width = chartContainerRef.value.clientWidth
+  const height = Math.max(220, chartContainerRef.value.clientHeight)
+  if (width > 0 && height > 0) {
+    chartInstance.changeSize(width, height)
+  }
+}
+
 // 渲染图表
 const renderChart = async () => {
   if (templateCode.value === 'temp01') {
@@ -276,12 +295,31 @@ const renderChart = async () => {
     return
   }
 
+  const container = chartContainerRef.value
+  const containerWidth = container.clientWidth
+  const containerHeightRaw = container.clientHeight
+  if (containerWidth < 120 || containerHeightRaw < 120) {
+    if (renderRetryCount < 8) {
+      renderRetryCount += 1
+      requestRenderChart()
+    }
+    return
+  }
+  renderRetryCount = 0
+
   // 销毁旧实例
   destroyChart()
 
-  const container = chartContainerRef.value
   const chartDataValue = data.value
   const chartColumns = columns.value
+  const containerHeight = Math.max(220, containerHeightRaw)
+  const isCompactHeight = containerHeight < 340
+  const commonAppendPadding: [number, number, number, number] = [
+    isCompactHeight ? 36 : 26,
+    18,
+    isCompactHeight ? 68 : 52,
+    22,
+  ]
 
   try {
     if (templateCode.value === 'temp02') {
@@ -296,6 +334,9 @@ const renderChart = async () => {
       })).filter((item: any) => !Number.isNaN(item.value) && item.value !== 0)
 
       const config: PieOptions = {
+        autoFit: true,
+        height: containerHeight,
+        appendPadding: [18, 18, 32, 18],
         data: pieData,
         angleField: 'value',
         colorField: 'name',
@@ -426,6 +467,9 @@ const renderChart = async () => {
       const shouldRotate = maxLabelLength > 8 || dataCount > 10
       
       const config: ColumnOptions = {
+        autoFit: true,
+        height: containerHeight,
+        appendPadding: commonAppendPadding,
         data: columnData,
         xField: 'name',
         yField: 'value',
@@ -438,28 +482,31 @@ const renderChart = async () => {
         columnStyle: {
           radius: [8, 8, 0, 0],
         },
-        label: {
-          position: 'top' as const,
-          offset: 8,
-          style: {
-            fill: '#333',
-            fontSize: 12,
-            fontWeight: 500,
-            textBaseline: 'bottom',
-          },
-          formatter: (datum: any) => {
-            const value = datum.value
-            if (typeof value === 'number') {
-              return value >= 1000 ? `${(value / 1000).toFixed(1)}k` : value.toFixed(0)
-            }
-            return value
-          },
-        },
+        label: isCompactHeight
+          ? false
+          : {
+              position: 'top' as const,
+              offset: 6,
+              style: {
+                fill: '#333',
+                fontSize: 12,
+                fontWeight: 500,
+                textBaseline: 'bottom',
+              },
+              formatter: (datum: any) => {
+                const value = datum.value
+                if (typeof value === 'number') {
+                  return value >= 1000 ? `${(value / 1000).toFixed(1)}k` : value.toFixed(0)
+                }
+                return value
+              },
+            },
         xAxis: {
           label: {
             autoRotate: shouldRotate,
             rotate: shouldRotate ? -45 : 0,
             autoHide: true,
+            autoEllipsis: true,
             style: {
               fontSize: 12,
               fill: '#666',
@@ -494,7 +541,7 @@ const renderChart = async () => {
               fill: '#333',
               fontWeight: 600,
             },
-            spacing: 8,
+            spacing: 12,
           },
         },
         yAxis: {
@@ -631,6 +678,9 @@ const renderChart = async () => {
       }))
 
       const config: LineOptions = {
+        autoFit: true,
+        height: containerHeight,
+        appendPadding: commonAppendPadding,
         data: lineData,
         xField: 'name',
         yField: 'value',
@@ -657,29 +707,31 @@ const renderChart = async () => {
           lineWidth: 3,
           stroke: '#667eea',
         },
-        label: {
-          position: 'top',
-          offset: 10,
-          style: {
-            fill: '#333',
-            fontSize: 12,
-            fontWeight: 500,
-            textBaseline: 'bottom',
-          },
-          formatter: (datum: any) => {
-            const value = datum.value
-            if (typeof value === 'number') {
-              return value >= 1000 ? `${(value / 1000).toFixed(1)}k` : value.toFixed(0)
-            }
-            return value
-          },
-        },
+        label: isCompactHeight
+          ? false
+          : {
+              position: 'top',
+              offset: 8,
+              style: {
+                fill: '#333',
+                fontSize: 12,
+                fontWeight: 500,
+                textBaseline: 'bottom',
+              },
+              formatter: (datum: any) => {
+                const value = datum.value
+                if (typeof value === 'number') {
+                  return value >= 1000 ? `${(value / 1000).toFixed(1)}k` : value.toFixed(0)
+                }
+                return value
+              },
+            },
         xAxis: {
           tickCount: lineData.length > 20 ? 15 : undefined, // 数据点多时限制显示的刻度数量
           label: {
             autoRotate: lineData.length > 15, // 数据点多时自动旋转
             rotate: lineData.length > 15 ? -45 : 0, // 旋转角度
-            autoHide: false, // 不自动隐藏，确保标签显示
+            autoHide: isCompactHeight, // 小尺寸下自动隐藏部分标签避免遮挡
             autoEllipsis: true, // 自动省略过长文本
             style: {
               fontSize: 12,
@@ -733,7 +785,7 @@ const renderChart = async () => {
               fill: '#333',
               fontWeight: 600,
             },
-            spacing: 8,
+            spacing: 12,
           },
         },
         yAxis: {
@@ -862,6 +914,24 @@ const renderChart = async () => {
       chartInstance.render()
     }
 
+    syncChartSize()
+    if (shouldRunStabilizeRender) {
+      shouldRunStabilizeRender = false
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          if (!chartInstance) {
+            return
+          }
+          syncChartSize()
+          try {
+            chartInstance.render()
+          } catch (error) {
+            console.error('图表稳定重绘失败，降级为重新渲染:', error)
+            requestRenderChart()
+          }
+        })
+      })
+    }
     emit('chartRendered')
     // 不清空数据，保留图表数据以便显示
   } catch (error) {
@@ -869,15 +939,33 @@ const renderChart = async () => {
   }
 }
 
+const requestRenderChart = () => {
+  if (renderFrameId !== null) {
+    window.cancelAnimationFrame(renderFrameId)
+  }
+  renderFrameId = window.requestAnimationFrame(() => {
+    renderFrameId = null
+    renderChart()
+  })
+}
+
 // 监听容器引用，当容器准备好时渲染图表
 watch(
   () => chartContainerRef.value,
-  (newVal) => {
+  (newVal, oldVal) => {
+    if (oldVal && chartResizeObserver) {
+      chartResizeObserver.unobserve(oldVal)
+    }
+    if (newVal) {
+      if (!chartResizeObserver) {
+        chartResizeObserver = new ResizeObserver(() => {
+          syncChartSize()
+        })
+      }
+      chartResizeObserver.observe(newVal)
+    }
     if (newVal && templateCode.value && data.value.length > 0) {
-      // 使用 setTimeout 确保 DOM 完全渲染
-      setTimeout(() => {
-        renderChart()
-      }, 0)
+      requestRenderChart()
     }
   },
   { immediate: true },
@@ -885,15 +973,39 @@ watch(
 
 // 监听数据和模板代码变化
 watch(() => [templateCode.value, data.value.length], () => {
+  shouldRunStabilizeRender = true
   if (chartContainerRef.value && templateCode.value && data.value.length > 0) {
-    // 使用 setTimeout 确保 DOM 完全渲染
-    setTimeout(() => {
-      renderChart()
-    }, 0)
+    requestRenderChart()
   }
 })
 
+watch(() => props.refreshVersion, () => {
+  if (!chartContainerRef.value || !templateCode.value || data.value.length === 0) {
+    return
+  }
+  window.requestAnimationFrame(() => {
+    syncChartSize()
+    if (chartInstance) {
+      try {
+        chartInstance.render()
+        return
+      } catch (error) {
+        console.error('图表重绘失败，降级为重新渲染:', error)
+      }
+    }
+    requestRenderChart()
+  })
+})
+
 onBeforeUnmount(() => {
+  if (renderFrameId !== null) {
+    window.cancelAnimationFrame(renderFrameId)
+    renderFrameId = null
+  }
+  if (chartResizeObserver) {
+    chartResizeObserver.disconnect()
+    chartResizeObserver = null
+  }
   destroyChart()
 })
 </script>

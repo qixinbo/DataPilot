@@ -16,6 +16,12 @@ export interface DashboardChartItem {
   chartData: DashboardChartData
   recordId?: number | null
   hidden?: boolean
+  layout?: {
+    w: number
+    h: number
+    minW?: number
+    minH?: number
+  }
 }
 
 export interface BusinessState {
@@ -130,8 +136,43 @@ export const useBusinessStore = defineStore('business-store', {
         chartData: payload.chartData,
         recordId: payload.recordId ?? null,
         hidden: false,
+        layout: {
+          w: 6,
+          h: 6,
+          minW: 3,
+          minH: 5,
+        },
       })
       return true
+    },
+    reorder_dashboard_charts(sourceId: string, targetId: string) {
+      if (!sourceId || !targetId || sourceId === targetId) {
+        return
+      }
+      const sourceIndex = this.dashboardCharts.findIndex(item => item.id === sourceId)
+      const targetIndex = this.dashboardCharts.findIndex(item => item.id === targetId)
+      if (sourceIndex === -1 || targetIndex === -1) {
+        return
+      }
+      const [sourceItem] = this.dashboardCharts.splice(sourceIndex, 1)
+      this.dashboardCharts.splice(targetIndex, 0, sourceItem)
+    },
+    update_dashboard_chart_layout(chartId: string, layout: Partial<DashboardChartItem['layout']>) {
+      const target = this.dashboardCharts.find(item => item.id === chartId)
+      if (!target) {
+        return
+      }
+      const currentLayout = target.layout || { w: 6, h: 6, minW: 3, minH: 5 }
+      const nextW = Number(layout?.w ?? currentLayout.w)
+      const nextH = Number(layout?.h ?? currentLayout.h)
+      const nextMinW = Number(layout?.minW ?? currentLayout.minW ?? 3)
+      const nextMinH = Number(layout?.minH ?? currentLayout.minH ?? 5)
+      target.layout = {
+        w: Math.max(nextMinW, Math.round(nextW)),
+        h: Math.max(nextMinH, Math.round(nextH)),
+        minW: nextMinW,
+        minH: nextMinH,
+      }
     },
     remove_dashboard_chart(chartId: string) {
       this.dashboardCharts = this.dashboardCharts.filter(item => item.id !== chartId)
