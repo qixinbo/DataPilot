@@ -19,6 +19,7 @@ const props = defineProps({
       template_code?: string
       columns?: string[]
       data?: any[]
+      axis?: Record<string, any>
     } | null>,
     default: null,
   },
@@ -30,10 +31,14 @@ const props = defineProps({
     type: String,
     default: '',
   },
+  allowPin: {
+    type: Boolean,
+    default: true,
+  },
 })
 
 // 自定义事件用于 子父组件传递事件信息
-const emit = defineEmits(['chartRendered', 'tableRendered'])
+const emit = defineEmits(['chartRendered', 'tableRendered', 'pinToDashboard'])
 
 // 全局存储
 const businessStore = useBusinessStore()
@@ -125,6 +130,37 @@ const isDatabaseQa = computed(() => {
 const shouldShowSqlButton = computed(() => {
   return (props.qaType === 'DATABASE_QA' || props.qaType === 'FILEDATA_QA') && props.recordId
 })
+
+const shouldShowPinButton = computed(() => {
+  return props.allowPin
+    && ['temp02', 'temp03', 'temp04'].includes(templateCode.value)
+    && data.value.length > 0
+})
+
+const handlePinToDashboard = () => {
+  if (!chartData.value?.template_code || !chartData.value?.data?.length) {
+    window.$ModalMessage.warning('当前图表数据不完整，无法添加')
+    return
+  }
+  const payload = {
+    title: chartTitle.value,
+    qaType: props.qaType,
+    chartData: {
+      template_code: chartData.value.template_code,
+      columns: chartData.value.columns || [],
+      data: chartData.value.data || [],
+      axis: chartData.value.axis,
+    },
+    recordId: props.recordId,
+  }
+  const inserted = businessStore.add_dashboard_chart(payload)
+  if (inserted) {
+    window.$ModalMessage.success('已添加到 Dashboard')
+  } else {
+    window.$ModalMessage.warning('该图表已在 Dashboard 中')
+  }
+  emit('pinToDashboard', payload)
+}
 
 // 格式化SQL语句：复用全局 SQL 格式化工具，保证与系统其它页面一致
 const formatSql = (sql: string) => {
@@ -273,7 +309,7 @@ const renderChart = async () => {
               whiteSpace: 'pre-wrap',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
-              fontSize: 16,
+              fontSize: '16px',
               fontWeight: 500,
               color: '#333',
             },
@@ -284,7 +320,7 @@ const renderChart = async () => {
           type: 'inner',
           offset: '-50%',
           content: ({ percent, name }) => {
-            const percentValue = (percent * 100).toFixed(1)
+            const percentValue = Number((percent * 100).toFixed(1))
             return percentValue > 5 ? `${name}\n${percentValue}%` : ''
           },
           style: {
@@ -797,9 +833,6 @@ const renderChart = async () => {
               stroke: '#667eea',
               lineWidth: 2,
             },
-            point: {
-              visible: false,
-            },
           },
           handlerStyle: {
             fill: '#667eea',
@@ -919,6 +952,38 @@ onBeforeUnmount(() => {
               </svg>
             </template>
           </n-button>
+
+          <n-tooltip
+            v-if="shouldShowPinButton && !showSqlView"
+            trigger="hover"
+          >
+            <template #trigger>
+              <n-button
+                quaternary
+                size="small"
+                type="primary"
+                class="header-icon-btn"
+                @click="handlePinToDashboard"
+              >
+                <template #icon>
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    class="icon-svg"
+                  >
+                    <path d="M12 17v5"></path>
+                    <path d="M15 2H9a2 2 0 0 0-2 2v3.59a1 1 0 0 1-.29.7L4.7 10.3a1 1 0 0 0 0 1.4l2.01 2.01a1 1 0 0 1 .29.7V18a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2v-3.59a1 1 0 0 1 .29-.7l2.01-2.01a1 1 0 0 0 0-1.4l-2.01-2.01a1 1 0 0 1-.29-.7V4a2 2 0 0 0-2-2z"></path>
+                  </svg>
+                </template>
+              </n-button>
+            </template>
+            添加到 Dashboard
+          </n-tooltip>
           
           <!-- 图表图标按钮（显示SQL时显示） -->
           <n-button
@@ -1521,4 +1586,3 @@ onBeforeUnmount(() => {
   }
 }
 </style>
-

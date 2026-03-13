@@ -36,6 +36,7 @@ const emit = defineEmits([
   'suggested',
   'progress-display-change',
   'step-progress',
+  'pin-to-dashboard',
 ])
 
 const { copy, copyDuration } = useClipText()
@@ -574,6 +575,10 @@ const onChartCompletedReader = function () {
   emit('chartready')
 }
 
+const onPinToDashboard = (payload: any) => {
+  emit('pin-to-dashboard', payload)
+}
+
 /**
  * 统一判断：是否正在等待后端对话结束
  * 如果正在等待，则不应该处理用户操作
@@ -767,6 +772,7 @@ const currentQaOption = computed(() => {
               :qa-type="props.qaType"
               @chart-rendered="() => onChartCompletedReader()"
               @table-rendered="() => onTableCompletedReader()"
+              @pin-to-dashboard="onPinToDashboard"
             />
           </div>
           <div
@@ -1195,4 +1201,3 @@ const currentQaOption = computed(() => {
 }
 
 </style>
-

@@ -13,6 +13,7 @@ import FileUploadManager from '@/views/file/file-upload-manager.vue'
 
 import SuggestedView from './suggested-page.vue'
 import TableModal from '@/views/datasource/table-modal.vue'
+import DashboardPanel from './dashboard-panel.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -30,6 +31,10 @@ const isInit = ref(true)
 
 // 是否查看历史消息标识
 const isView = ref(false)
+const currentSidebarTab = ref<'chat' | 'dashboard'>('chat')
+const dashboardVisibleCount = computed(() =>
+  (businessStore.dashboardCharts || []).filter(item => !item.hidden).length,
+)
 
 // 使用 onMounted 生命周期钩子加载历史对话
 // 新增：加载历史对话的状态
@@ -120,6 +125,7 @@ function newChat() {
 
   // 清除表格选中状态
   currentIndex.value = null
+  currentSidebarTab.value = 'chat'
 
   // 重置查看历史消息标识
   isView.value = false
@@ -150,6 +156,17 @@ function newChat() {
   // 重置所有问答类型的uuid
   uuids.value = {}
   uuids.value['COMMON_QA'] = uuidv4()
+}
+
+const openDashboardPanel = () => {
+  currentSidebarTab.value = 'dashboard'
+  showDefaultPage.value = false
+  isView.value = false
+  currentIndex.value = null
+}
+
+const handlePinToDashboard = (payload: any) => {
+  void payload
 }
 
 /**
@@ -1591,6 +1608,7 @@ const handleHistoryClick = async (item: any) => {
 
   isInit.value = false
   isView.value = true
+  currentSidebarTab.value = 'chat'
 
   // 每次点击历史记录时，刷新一次大语言模型列表和当前默认模型
   loadLLMModels()
@@ -1688,7 +1706,7 @@ const handleHistoryClick = async (item: any) => {
           <div class="sidebar-header px-6 py-6 flex justify-between items-center">
             <div
               class="logo-area flex items-center gap-3 cursor-pointer"
-              @click="showDefaultPage = true"
+              @click="currentSidebarTab = 'chat'; showDefaultPage = true"
             >
               <div class="i-hugeicons:ai-chat-02 text-32 c-[#3B5CFF]"></div>
               <span class="text-24 font-bold text-[#111111] tracking-tight font-sans">助手</span>
@@ -1737,6 +1755,22 @@ const handleHistoryClick = async (item: any) => {
               <div class="i-hugeicons:comment-add-01 text-18"></div>
               <span>新对话</span>
             </button>
+          </div>
+
+          <div class="px-6 pb-2">
+            <div
+              class="dashboard-entry h-[40px] rounded-[8px] border text-[14px] font-medium flex items-center justify-between px-3 cursor-pointer transition-all"
+              :class="currentSidebarTab === 'dashboard'
+                ? 'bg-[#F2F0FF] border-[#D8D1FF] text-[#5A43D6]'
+                : 'bg-white border-[#E6E6E6] text-[#444] hover:border-[#D8D1FF] hover:text-[#5A43D6]'"
+              @click="openDashboardPanel"
+            >
+              <div class="flex items-center gap-2">
+                <div class="i-material-symbols:dashboard-outline text-18"></div>
+                <span>Dashboard</span>
+              </div>
+              <span class="text-[12px] opacity-70">{{ dashboardVisibleCount }}</span>
+            </div>
           </div>
 
           <!-- Recent Chats Label -->
@@ -1894,6 +1928,14 @@ const handleHistoryClick = async (item: any) => {
                   :collapsed="collapsed"
                   @submit="handleSubmitFromDefaultPage"
                 />
+              </div>
+
+              <div
+                v-else-if="currentSidebarTab === 'dashboard'"
+                key="dashboard-page"
+                class="h-full"
+              >
+                <DashboardPanel />
               </div>
 
               <div
@@ -2074,6 +2116,7 @@ const handleHistoryClick = async (item: any) => {
                     @praise-fead-back="() => onPraiseFeadBack(index)"
                     @progress-display-change="(hasProgress: boolean) => onProgressDisplayChange(index, hasProgress)"
                     @step-progress="(progress: any) => onStepProgress(index, progress)"
+                    @pin-to-dashboard="handlePinToDashboard"
                     @belittle-feedback="
                       () => onBelittleFeedback(index)
                     "
@@ -2198,7 +2241,7 @@ const handleHistoryClick = async (item: any) => {
 
           <!-- Bottom Input Area (C Style) -->
           <div
-            v-if="!showDefaultPage"
+            v-if="!showDefaultPage && currentSidebarTab === 'chat'"
             class="bottom-input-container"
           >
             <div class="input-card">

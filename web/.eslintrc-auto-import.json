@@ -6,6 +6,8 @@
     "ComponentInternalInstance": true,
     "ComponentPublicInstance": true,
     "ComputedRef": true,
+    "DashboardChartData": true,
+    "DashboardChartItem": true,
     "DirectiveBinding": true,
     "EffectScope": true,
     "ExtractDefaultPropTypes": true,

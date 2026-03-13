@@ -2,6 +2,22 @@ import { defineStore } from 'pinia'
 import * as GlobalAPI from '@/api'
 import * as TransformUtils from '@/components/MarkdownPreview/transform'
 
+export interface DashboardChartData {
+  template_code?: string
+  columns?: string[]
+  data?: any[]
+  axis?: Record<string, any>
+}
+
+export interface DashboardChartItem {
+  id: string
+  title: string
+  qaType: string
+  chartData: DashboardChartData
+  recordId?: number | null
+  hidden?: boolean
+}
+
 export interface BusinessState {
   writerList: any
   qa_type: any
@@ -13,6 +29,7 @@ export interface BusinessState {
     file_size: string
   }[]
   suggestedDisabled: boolean
+  dashboardCharts: DashboardChartItem[]
 }
 
 export const useBusinessStore = defineStore('business-store', {
@@ -29,6 +46,7 @@ export const useBusinessStore = defineStore('business-store', {
       record_id: null,
       // 全局推荐问题禁用状态
       suggestedDisabled: false,
+      dashboardCharts: [],
     }
   },
   actions: {
@@ -77,6 +95,58 @@ export const useBusinessStore = defineStore('business-store', {
     // 设置推荐问题禁用状态
     set_suggested_disabled(disabled: boolean) {
       this.suggestedDisabled = disabled
+    },
+    add_dashboard_chart(payload: {
+      title: string
+      qaType: string
+      chartData: DashboardChartData
+      recordId?: number | null
+    }) {
+      if (!payload.chartData?.template_code || !payload.chartData?.data?.length) {
+        return false
+      }
+
+      const duplicatedIndex = this.dashboardCharts.findIndex(item =>
+        item.title === payload.title
+        && item.qaType === payload.qaType
+        && JSON.stringify(item.chartData) === JSON.stringify(payload.chartData),
+      )
+      if (duplicatedIndex !== -1) {
+        const duplicatedItem = this.dashboardCharts[duplicatedIndex]
+        if (duplicatedItem.hidden) {
+          duplicatedItem.hidden = false
+          this.dashboardCharts.splice(duplicatedIndex, 1)
+          this.dashboardCharts.unshift(duplicatedItem)
+          return true
+        }
+        return false
+      }
+
+      const chartId = `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
+      this.dashboardCharts.unshift({
+        id: chartId,
+        title: payload.title || '图表',
+        qaType: payload.qaType || 'COMMON_QA',
+        chartData: payload.chartData,
+        recordId: payload.recordId ?? null,
+        hidden: false,
+      })
+      return true
+    },
+    remove_dashboard_chart(chartId: string) {
+      this.dashboardCharts = this.dashboardCharts.filter(item => item.id !== chartId)
+    },
+    toggle_dashboard_chart_hidden(chartId: string) {
+      const target = this.dashboardCharts.find(item => item.id === chartId)
+      if (!target) {
+        return
+      }
+      target.hidden = !target.hidden
+    },
+    clear_dashboard_hidden() {
+      this.dashboardCharts.forEach((item) => {
+        item.hidden = false
+      })
     },
     /**
      * Event Stream 调用大模型python服务接口
