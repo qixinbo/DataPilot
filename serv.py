@@ -132,5 +132,23 @@ def get_server_config():
 
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Start the Sanic server")
+    parser.add_argument(
+        "--debug", action="store_true", help="Run in debug mode with auto-reload"
+    )
+    args = parser.parse_args()
+
+    # Check env var as well
+    debug_mode = args.debug or os.getenv("DEBUG", "false").lower() == "true"
+
     config = get_server_config()
+
+    if debug_mode:
+        print("🚀 Running in DEBUG mode with auto-reload enabled")
+        config["debug"] = True
+        config["auto_reload"] = True
+        config["workers"] = 1  # Auto-reload works best with single worker
+
     app.run(**config)
