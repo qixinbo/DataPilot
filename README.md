@@ -237,7 +237,7 @@ npm run dev
 
 ## 文档
 - [配置说明](./docs/docs/index.md)
-- [API 文档](http://localhost:8088/docs) (启动后访问)
+- [API 文档](http://localhost:8088/docs) (开发模式下服务启动后访问)
 
 
 

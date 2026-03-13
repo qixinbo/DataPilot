@@ -134,3 +134,12 @@ def load_env():
     dotenv_path = f'.env.{os.getenv("ENV","dev")}'
     logging.info(f"""====当前配置文件是:{dotenv_path}====""")
     load_dotenv(dotenv_path)
+
+    # 检查是否配置了 OpenTelemetry Endpoint，如果没有配置则禁用 exporter 以防止超时错误
+    # (例如: urllib3.exceptions.ReadTimeoutError: HTTPConnectionPool(host='127.0.0.1', port=7897))
+    if not os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT"):
+        logging.info("OTEL_EXPORTER_OTLP_ENDPOINT not set, disabling OpenTelemetry exporter to prevent timeouts")
+        os.environ["OTEL_SDK_DISABLED"] = "true"
+        os.environ["OTEL_TRACES_EXPORTER"] = "none"
+        os.environ["OTEL_METRICS_EXPORTER"] = "none"
+        os.environ["OTEL_LOGS_EXPORTER"] = "none"
