@@ -249,10 +249,12 @@ async def add_user_record(
     file_list: dict[str, Any] = None,
     datasource_id: int = None,
     sql_statement: str = "",
+    reasoning_content: str = "",
 ):
     """
     新增用户问答记录
     :param sql_statement: SQL语句（数据问答时保存，其他类型使用默认值空字符串）
+    :param reasoning_content: 思考过程内容
     """
     try:
         # 1. 解析用户信息
@@ -264,7 +266,11 @@ async def add_user_record(
         # 2. 组装 answer 数据 - 修复部分：确保所有元素转换为字符串
         t02_content = "".join(str(item) for item in (to2_answer or []))
         t02_message_json = {
-            "data": {"messageType": "continue", "content": t02_content},
+            "data": {
+                "messageType": "continue",
+                "content": t02_content,
+                "reasoning_content": reasoning_content,
+            },
             "dataType": DataTypeEnum.ANSWER.value[0],
         }
         t02_answer_str = json.dumps(t02_message_json, ensure_ascii=False)

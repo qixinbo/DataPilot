@@ -33,6 +33,16 @@ const processSingleResponse = (res) => {
                     JSON.stringify(jsonChunk),
                   )
                   break
+                case 't15':
+                  if (jsonChunk.data && jsonChunk.data.content) {
+                    controller.enqueue(
+                      JSON.stringify({
+                        type: 'reasoning',
+                        content: jsonChunk.data.content,
+                      }),
+                    )
+                  }
+                  break
                 case 't02':
                   if (jsonChunk.data) {
                     controller.enqueue(
@@ -224,16 +234,56 @@ export const fetchConversationHistory = async function fetchConversationHistory(
                   break
                 case 'to2_answer':
                   try {
-                    streamDataArray.push({
-                      dataType: 't02',
-                      data: {
-                        content: JSON.parse(record[key])
-                          .data
-                          .content,
-                      },
-                    })
+                    let parsedData: any = null
+                    try {
+                      parsedData = JSON.parse(record[key])
+                    } catch (e) {
+                      // 如果不是 JSON，可能是普通字符串
+                      parsedData = record[key]
+                    }
+
+                    // 情况1: 新格式 { data: { content: "...", reasoning_content: "..." }, dataType: "..." }
+                    if (parsedData && typeof parsedData === 'object' && !Array.isArray(parsedData) && parsedData.data) {
+                      if (parsedData.data.reasoning_content) {
+                        streamDataArray.push({
+                          dataType: 't15',
+                          data: {
+                            content: parsedData.data.reasoning_content,
+                          },
+                        })
+                      }
+                      streamDataArray.push({
+                        dataType: 't02',
+                        data: {
+                          messageType: 'continue',
+                          content: parsedData.data.content || '',
+                        },
+                      })
+                    }
+                    // 情况2: 旧格式 Array ["content1", "content2"]
+                    else if (Array.isArray(parsedData)) {
+                      const content = parsedData.join('')
+                      streamDataArray.push({
+                        dataType: 't02',
+                        data: {
+                          messageType: 'continue',
+                          content: content,
+                        },
+                      })
+                    }
+                    // 情况3: 纯字符串
+                    else if (typeof parsedData === 'string') {
+                      streamDataArray.push({
+                        dataType: 't02',
+                        data: {
+                          messageType: 'continue',
+                          content: parsedData,
+                        },
+                      })
+                    }
                   } catch (e) {
                     // 解析数据时出错，忽略继续处理
+                    console.error('Error parsing to2_answer:', e)
                   }
                   break
                 case 'to4_answer':

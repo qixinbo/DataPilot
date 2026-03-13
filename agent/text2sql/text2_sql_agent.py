@@ -74,6 +74,7 @@ class Text2SqlAgent:
         """
         t02_answer_data = []
         t04_answer_data = {}
+        reasoning_data = []  # 用于收集思考过程
         current_step = None
         final_filtered_sql = ""  # 用于保存最终的SQL语句
 
@@ -177,6 +178,7 @@ class Text2SqlAgent:
                             current_step,
                             t02_answer_data,
                             t04_answer_data,
+                            reasoning_data,
                         )
                         # 跟踪permission_filter节点后的SQL语句
                         if "permission_filter" in chunk_dict:
@@ -193,6 +195,7 @@ class Text2SqlAgent:
                         current_step,
                         t02_answer_data,
                         t04_answer_data,
+                        reasoning_data,
                     )
                     # 跟踪permission_filter节点后的SQL语句
                     if "permission_filter" in chunk_dict:
@@ -203,6 +206,9 @@ class Text2SqlAgent:
 
             # 只有在未取消的情况下才保存记录
             if not self.running_tasks[task_id]["cancelled"]:
+                # 收集思考过程数据
+                reasoning_content = "\n\n".join(reasoning_data) if reasoning_data else ""
+                
                 record_id = await add_user_record(
                     uuid_str,
                     chat_id,
@@ -214,6 +220,7 @@ class Text2SqlAgent:
                     {},
                     datasource_id,
                     final_filtered_sql,  # 传递SQL语句
+                    reasoning_content=reasoning_content,
                 )
                 # 发送record_id到前端，用于实时对话时显示SQL图标
                 if record_id and response:
@@ -245,6 +252,7 @@ class Text2SqlAgent:
         current_step,
         t02_answer_data,
         t04_answer_data,
+        reasoning_data,
     ):
         """
         处理单个流式块数据
@@ -272,7 +280,12 @@ class Text2SqlAgent:
         # 处理具体步骤内容
         if step_value:
             await self._process_step_content(
-                response, langgraph_step, step_value, t02_answer_data, t04_answer_data
+                response,
+                langgraph_step,
+                step_value,
+                t02_answer_data,
+                t04_answer_data,
+                reasoning_data,
             )
 
         # 所有步骤都发送完成信息（无论是否有 step_value）
@@ -328,6 +341,7 @@ class Text2SqlAgent:
         step_value: Dict[str, Any],
         t02_answer_data: list,
         t04_answer_data: Dict[str, Any],
+        reasoning_data: list,
     ) -> None:
         """
         处理各个步骤的内容
@@ -382,16 +396,40 @@ class Text2SqlAgent:
                 else DataTypeEnum.ANSWER.value[0]
             )
 
+            # 区分 ANSWER (用户可见的最终回答) 和 REASONING (思考过程)
+            # 默认大多数步骤都是思考过程
+            if step_name in ["summarize", "error_handler"]:
+                data_type = DataTypeEnum.ANSWER.value[0]
+            elif step_name == "data_render":
+                data_type = DataTypeEnum.BUS_DATA.value[0]
+            else:
+                data_type = DataTypeEnum.REASONING.value[0]
+
             # unified_collector 节点由专门的 _process_unified_collector 处理，不在这里发送格式化消息
-            # 只发送关键步骤的内容到前端：error_handler（错误信息）、summarize（总结）
-            should_send = step_name in ["error_handler", "summarize"]
+            # 现在我们将所有在 content_map 中的步骤内容都发送到前端
+            # summarize, error_handler -> ANSWER
+            # data_render -> BUS_DATA
+            # 其他 (schema_inspector, sql_generator, etc.) -> REASONING
+            should_send = True
+            
+            # 如果是思考过程，且内容为空或不重要，可以选择不发送
+            if data_type == DataTypeEnum.REASONING.value[0] and not content:
+                should_send = False
 
             if should_send:
+                # 为思考过程添加步骤标题前缀，使其更清晰
+                final_content = content
+                if data_type == DataTypeEnum.REASONING.value[0]:
+                    step_cn = STEP_NAME_MAP.get(step_name, step_name)
+                    final_content = f"**{step_cn}**\n\n{content}\n\n"
+                    # 收集思考过程数据
+                    reasoning_data.append(final_content)
+
                 await self._send_response(
-                    response=response, content=content, data_type=data_type
+                    response=response, content=final_content, data_type=data_type
                 )
 
-                # 只保存关键步骤的内容到数据库
+                # 只保存关键步骤的内容到数据库 (ANSWER类型)
                 if data_type == DataTypeEnum.ANSWER.value[0]:
                     t02_answer_data.append(content)
 
@@ -754,6 +792,8 @@ class Text2SqlAgent:
             await response.write(
                 "data:" + json.dumps(formatted_message, ensure_ascii=False) + "\n\n"
             )
+            if hasattr(response, "flush"):
+                await response.flush()
 
     @staticmethod
     async def _send_response(
@@ -770,7 +810,7 @@ class Text2SqlAgent:
         :param data_type: 数据类型
         """
         if response:
-            if data_type == DataTypeEnum.ANSWER.value[0]:
+            if data_type in [DataTypeEnum.ANSWER.value[0], DataTypeEnum.REASONING.value[0]]:
                 formatted_message = {
                     "data": {
                         "messageType": message_type,

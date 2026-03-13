@@ -81,6 +81,7 @@ class ExcelAgent:
         """
         t02_answer_data = []  # 用于保存 summarize 内容
         t04_answer_data = {}  # 用于保存图表数据
+        reasoning_data = []  # 用于收集思考过程
         summarize_content = ""  # 用于单独保存 summarize 信息（markdown格式）
         sql_statement = ""  # 用于保存 SQL 语句
         current_step = None
@@ -164,6 +165,7 @@ class ExcelAgent:
                             current_step,
                             t02_answer_data,
                             t04_answer_data,
+                            reasoning_data,
                             summarize_content,
                             sql_statement,
                         )
@@ -186,6 +188,7 @@ class ExcelAgent:
                             current_step,
                             t02_answer_data,
                             t04_answer_data,
+                            reasoning_data,
                             summarize_content,
                             sql_statement,
                         )
@@ -203,6 +206,9 @@ class ExcelAgent:
                 # 如果没有 summarize，则保存空字符串
                 final_t02_answer = [summarize_content] if summarize_content else []
 
+                # 收集思考过程数据
+                reasoning_content = "\n\n".join(reasoning_data) if reasoning_data else ""
+
                 record_id = await add_user_record(
                     uuid_str,
                     chat_id,
@@ -213,6 +219,7 @@ class ExcelAgent:
                     user_token,
                     file_list,
                     sql_statement=sql_statement,  # 保存 SQL 语句
+                    reasoning_content=reasoning_content,
                 )
                 # 发送record_id到前端，用于实时对话时显示SQL图标
                 if record_id and response:
@@ -245,6 +252,7 @@ class ExcelAgent:
         current_step,
         t02_answer_data,
         t04_answer_data,
+        reasoning_data,
         summarize_content,
         sql_statement,
     ):
@@ -279,11 +287,12 @@ class ExcelAgent:
                 step_value,
                 t02_answer_data,
                 t04_answer_data,
+                reasoning_data,
                 summarize_content,
                 sql_statement,
             )
 
-            # 步骤内容处理完成后，发送完成信息（如果是最后一个步骤，确保发送完成信息）
+        # 步骤内容处理完成后，发送完成信息（如果是最后一个步骤，确保发送完成信息）
             if langgraph_step in self.step_progress_ids:
                 progress_id = self.step_progress_ids.get(langgraph_step)
                 if progress_id:
@@ -336,6 +345,7 @@ class ExcelAgent:
         step_value: Dict[str, Any],
         t02_answer_data: list,
         t04_answer_data: Dict[str, Any],
+        reasoning_data: list,
         summarize_content: str,
         sql_statement: str,
     ) -> tuple:
@@ -404,14 +414,24 @@ class ExcelAgent:
                 if step_name in ["data_render", "data_render_apache"]
                 else DataTypeEnum.ANSWER.value[0]
             )
+            
+            # 区分 ANSWER (用户可见的最终回答) 和 REASONING (思考过程)
+            if step_name == "summarize":
+                data_type = DataTypeEnum.ANSWER.value[0]
+            elif step_name in ["data_render", "data_render_apache"]:
+                data_type = DataTypeEnum.BUS_DATA.value[0]
+            else:
+                data_type = DataTypeEnum.REASONING.value[0]
 
-            # 只输出 summarize 步骤到前端，其他步骤信息不输出
-            # 但保留 data_render 和 data_render_apache 的业务数据输出
-            should_send = step_name in [
-                "summarize",
-                "data_render",
-                "data_render_apache",
-            ]
+            # 只输出 summarize 步骤到前端，其他步骤信息不输出 -> 改为：
+            # summarize -> ANSWER
+            # data_render -> BUS_DATA
+            # 其他 -> REASONING
+            should_send = True
+            
+            # 如果是思考过程，且内容为空或不重要，可以选择不发送
+            if data_type == DataTypeEnum.REASONING.value[0] and not content:
+                should_send = False
 
             if should_send:
                 # data_render 和 data_render_apache 步骤的内容是字典，直接作为业务数据发送
@@ -428,14 +448,20 @@ class ExcelAgent:
                         response=response, content=content, data_type=data_type
                     )
                 else:
-                    # 其他步骤需要格式化输出（虽然现在不会执行到这里，但保留以防万一）
+                    # 其他步骤作为思考过程发送
                     step_display_name = STEP_NAME_MAP.get(step_name, step_name)
                     # 确保 content 是字符串类型
                     if isinstance(content, dict):
                         content = json.dumps(content, ensure_ascii=False, indent=2)
+                        
                     formatted_content = self._format_step_output(
                         step_display_name, content, step_name, None
                     )
+                    
+                    # 思考过程数据类型
+                    if data_type == DataTypeEnum.REASONING.value[0]:
+                        reasoning_data.append(formatted_content)
+                        
                     await self._send_response(
                         response=response,
                         content=formatted_content,
@@ -738,6 +764,8 @@ class ExcelAgent:
             await response.write(
                 "data:" + json.dumps(formatted_message, ensure_ascii=False) + "\n\n"
             )
+            if hasattr(response, "flush"):
+                await response.flush()
 
     @staticmethod
     async def _send_response(
@@ -754,7 +782,7 @@ class ExcelAgent:
         :param data_type: 数据类型
         """
         if response:
-            if data_type == DataTypeEnum.ANSWER.value[0]:
+            if data_type in [DataTypeEnum.ANSWER.value[0], DataTypeEnum.REASONING.value[0]]:
                 formatted_message = {
                     "data": {
                         "messageType": message_type,

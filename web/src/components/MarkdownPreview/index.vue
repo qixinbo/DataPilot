@@ -63,6 +63,8 @@ const { parentScollBottomMethod } = toRefs(props)
 // 定义响应式变量
 const displayText = ref('')
 const textBuffer = ref('')
+const reasoningText = ref('')
+const isReasoningExpanded = ref(false)
 
 const readerLoading = ref(false)
 
@@ -100,6 +102,10 @@ const renderedContent = computed(() => {
   return `${renderedMarkdown.value}`
 })
 
+const renderedReasoningContent = computed(() => {
+  return MarkdownInstance.render(reasoningText.value)
+})
+
 const abortReader = () => {
   if (props.reader) {
     props.reader.cancel()
@@ -122,6 +128,8 @@ const resetStatus = () => {
   initializeEnd()
   displayText.value = ''
   textBuffer.value = ''
+  reasoningText.value = ''
+  isReasoningExpanded.value = false
   readerLoading.value = false
   // 重置 HTML 报告状态
   htmlReportContent.value = ''
@@ -241,8 +249,17 @@ const readTextStream = async () => {
         emit('step-progress', stream.progress)
       }
 
+      // 处理推理过程
+      if ('reasoning' in stream && stream.reasoning) {
+        reasoningText.value += stream.reasoning
+        scrollToBottomByThreshold()
+      }
+
       // 每条消息换行显示
       if (stream.content) {
+        if (isReasoningExpanded.value) {
+          isReasoningExpanded.value = false
+        }
         textBuffer.value += stream.content
       }
 
@@ -686,12 +703,38 @@ const currentQaOption = computed(() => {
 
 
         <div
-          v-if="displayText || isCapturingHtml || htmlReportReady"
+          v-if="displayText || isCapturingHtml || htmlReportReady || reasoningText"
           ref="refWrapperContent"
           text-16
           class="w-full flex-1 overflow-y-auto"
           p-15px
         >
+          <!-- 思考过程区域 -->
+          <div
+            v-if="reasoningText"
+            class="mb-4 bg-gray-50 rounded-lg border border-gray-100 overflow-hidden"
+          >
+            <div
+              class="flex items-center gap-2 px-4 py-2 cursor-pointer hover:bg-gray-100 transition-colors"
+              @click="isReasoningExpanded = !isReasoningExpanded"
+            >
+              <div class="i-hugeicons:brain-02 text-16 text-[#7E6BF2]"></div>
+              <span class="text-14 font-medium text-gray-700">思考过程</span>
+              <span class="text-12 text-gray-500">{{ isReasoningExpanded ? '收起' : '展开' }}</span>
+              <div
+                class="i-hugeicons:arrow-down-01 text-16 text-gray-400 transition-transform duration-200 ml-auto"
+                :class="{ 'rotate-180': isReasoningExpanded }"
+              ></div>
+            </div>
+
+            <div
+              v-show="isReasoningExpanded"
+              class="px-4 py-3 border-t border-gray-100 bg-white max-h-60 overflow-y-auto"
+            >
+              <div class="markdown-wrapper reasoning-wrapper" v-html="renderedReasoningContent"></div>
+            </div>
+          </div>
+
           <div
             class="markdown-wrapper"
             :class="{ typing: readerLoading }"
@@ -1146,7 +1189,10 @@ const currentQaOption = computed(() => {
   font-weight: 500;
 }
 
+.reasoning-wrapper {
+  font-size: 13px;
+  line-height: 1.65;
+}
+
 </style>
-
-
 

@@ -14,9 +14,17 @@ type ProgressResult = {
   progress: any
   content?: never
   done?: never
+  reasoning?: never
 }
 
-type TransformResult = ContentResult | DoneResult | ProgressResult
+type ReasoningResult = {
+  reasoning: string
+  content?: never
+  done?: never
+  progress?: never
+}
+
+type TransformResult = ContentResult | DoneResult | ProgressResult | ReasoningResult
 type TransformFunction<T = any> = (rawValue: T, ...args: any) => TransformResult
 
 /**
@@ -95,6 +103,12 @@ export const transformStreamValue: Record<
         if (json && json.type === 'step_progress' && json.step && json.stepName && json.status && json.progressId) {
           return {
             progress: json,
+          }
+        }
+        // 检查是否是推理过程 (type: reasoning)
+        if (json && json.type === 'reasoning' && json.content) {
+          return {
+            reasoning: json.content,
           }
         }
         // 提取 messageType/content 格式的数据（store 解析 t02 后传来的）
@@ -230,6 +244,12 @@ export const transformStreamValue: Record<
               }
             }
           }
+          // 处理推理过程 (dataType为t15)
+          if (json.dataType === 't15' && json.data) {
+            return {
+              reasoning: json.data.content || '',
+            }
+          }
           // 服务端 SSE 保活事件，不追加任何内容，避免长时间等待时连接被断开
           if (json.dataType === 'keepalive') {
             return { content: '' }
@@ -272,6 +292,12 @@ export const transformStreamValue: Record<
         if (json && json.type === 'step_progress' && json.step && json.status && json.progressId) {
           return {
             progress: json,
+          }
+        }
+        // 处理推理过程 (type: reasoning)
+        if (json && json.type === 'reasoning' && json.content) {
+          return {
+            reasoning: json.content,
           }
         }
         // 处理自定义格式：{"messageType":"continue","content":"..."}

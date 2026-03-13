@@ -210,8 +210,11 @@ pip install -r requirements.txt
 
 **⑤ 启动后端服务**
 ```bash
-# Linux / Mac
+# Linux / Mac 生产模式
 python serv.py
+
+# Linux / Mac 开发模式
+python serv.py --dev
 
 # Windows PowerShell 专属命令：设置环境变量+运行脚本，一行执行  增加字符兼容性，解决有些机器错误问题。
 $env:PYTHONUTF8=1; python serv.py

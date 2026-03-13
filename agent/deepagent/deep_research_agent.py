@@ -457,6 +457,8 @@ class DeepAgent:
         connection_closed = False
         # 收集所有输出内容，流结束后写入 t_user_qa_record
         answer_collector: list[str] = []
+        # 收集思考过程内容
+        reasoning_data: list[str] = []
 
         try:
             agent = self._create_sql_deep_agent(datasource_id, effective_session_id)
@@ -475,6 +477,7 @@ class DeepAgent:
                         response,
                         effective_session_id,
                         answer_collector,
+                        reasoning_data,
                     ),
                     timeout=self.TASK_TIMEOUT,
                 )
@@ -515,6 +518,7 @@ class DeepAgent:
             # 写入对话记录到 t_user_qa_record
             try:
                 if answer_collector:
+                    reasoning_content = "".join(reasoning_data) if reasoning_data else ""
                     record_id = await add_user_record(
                         uuid_str=uuid_str or "",
                         chat_id=session_id,
@@ -525,6 +529,7 @@ class DeepAgent:
                         user_token=user_token,
                         file_list=file_list,
                         datasource_id=datasource_id,
+                        reasoning_content=reasoning_content,
                     )
                     logger.info(
                         f"对话记录已保存 - record_id: {record_id}, "
@@ -567,24 +572,10 @@ class DeepAgent:
         response,
         session_id: str,
         answer_collector: list,
+        reasoning_data: list,
     ) -> bool:
         """
         处理 agent 流式响应，多阶段实时推送到前端
-
-        执行阶段流转：
-        PLANNING（思考规划，<details> 包裹）
-            ↓ 首次工具调用
-        EXECUTION（执行回答，直接输出）
-            ↕ 子代理触发
-        SUB_AGENT（子代理，带标签 <details>）
-            ↓ 完成
-        EXECUTION / REPORTING（回答或报告输出）
-
-        Args:
-            answer_collector: 收集所有输出内容的列表，流结束后用于写入数据库
-
-        Returns:
-            bool: 连接是否已断开（True=断开）
         """
         tracker = PhaseTracker()
         token_count = 0
@@ -627,8 +618,6 @@ class DeepAgent:
                 ctx = self.tool_manager.get_session(session_id)
                 if ctx.should_terminate:
                     logger.warning(f"工具调用管理器触发终止: {ctx.termination_reason}")
-                    # 先关闭所有 <details> 区域
-                    await self._close_sections(response, tracker)
                     await self._safe_write(
                         response,
                         f"\n> ⚠️ **执行中止**\n\n{ctx.termination_reason}",
@@ -670,12 +659,21 @@ class DeepAgent:
                             connection_closed = True
                             break
 
-                    # 输出 token 并收集到 answer_collector
-                    if not await self._safe_write(response, token_text):
+                    # 确定数据类型
+                    data_type = DataTypeEnum.ANSWER.value[0]
+                    if tracker.current_phase in [Phase.PLANNING, Phase.SUB_AGENT]:
+                        data_type = DataTypeEnum.REASONING.value[0]
+
+                    # 输出 token 并收集
+                    if not await self._safe_write(response, token_text, data_type=data_type):
                         connection_closed = True
                         break
 
-                    answer_collector.append(token_text)
+                    if data_type == DataTypeEnum.ANSWER.value[0]:
+                        answer_collector.append(token_text)
+                    else:
+                        reasoning_data.append(token_text)
+                    
                     token_count += 1
 
                     # 刷新策略：每 10 token 或遇到 HTML 报告标记时刷新
@@ -695,9 +693,6 @@ class DeepAgent:
                 elif mode == "updates":
                     # 工具调用开始：从 PLANNING 切换到 EXECUTION
                     if tracker.current_phase == Phase.PLANNING:
-                        if not await self._close_sections(response, tracker):
-                            connection_closed = True
-                            break
                         tracker.current_phase = Phase.EXECUTION
                         tracker.has_tool_called = True
                         tracker.has_sent_content = True
@@ -721,7 +716,7 @@ class DeepAgent:
 
                         for msg in messages:
                             if not await self._process_update_message(
-                                msg, response, answer_collector
+                                msg, response, reasoning_data
                             ):
                                 connection_closed = True
                                 break
@@ -750,8 +745,6 @@ class DeepAgent:
             else:
                 logger.error(f"流式响应异常: {type(e).__name__}: {e}", exc_info=True)
                 try:
-                    # 先关闭打开的 <details>
-                    await self._close_sections(response, tracker)
                     await self._safe_write(
                         response,
                         f"\n> ❌ **处理异常**: {str(e)[:200]}\n\n请稍后重试。",
@@ -761,12 +754,8 @@ class DeepAgent:
                 except Exception:
                     pass
         finally:
-            # 确保关闭所有打开的 <details> 区域
-            if not connection_closed:
-                try:
-                    await self._close_sections(response, tracker)
-                except Exception:
-                    pass
+            pass
+            # 确保关闭所有打开的 <details> 区域 - 已移除
 
         logger.info(
             f"流式响应结束 - 会话: {session_id}, "
@@ -782,53 +771,32 @@ class DeepAgent:
         node_name: str,
     ) -> bool:
         """
-        处理阶段切换，管理 <details> 标签的打开/关闭
-
-        Returns:
-            bool: True=成功, False=连接断开
+        处理阶段切换
         """
         old_phase = tracker.current_phase
 
         if new_phase == Phase.PLANNING:
             if not tracker.planning_opened:
-                if not await self._open_thinking_section(response):
-                    return False
                 tracker.planning_opened = True
 
         elif new_phase == Phase.SUB_AGENT:
-            # 先关闭之前的区域
-            if not await self._close_sections(response, tracker):
-                return False
-            if not await self._open_subagent_section(response, node_name):
-                return False
             tracker.subagent_opened = True
 
         elif new_phase == Phase.EXECUTION:
-            # 关闭思考区/子代理区，进入正式内容
-            if not await self._close_sections(response, tracker):
-                return False
             tracker.has_sent_content = True
 
         elif new_phase == Phase.REPORTING:
-            # 报告阶段：先关闭所有区域，HTML 标记直接透传
-            if not await self._close_sections(response, tracker):
-                return False
+            pass
 
         tracker.current_phase = new_phase
         logger.debug(f"阶段切换: {old_phase.value} → {new_phase.value}")
         return True
 
     async def _process_update_message(
-        self, msg, response, answer_collector: list
+        self, msg, response, reasoning_data: list
     ) -> bool:
         """
         处理 updates 模式下的单条消息（工具调用/结果）
-
-        Args:
-            answer_collector: 收集所有输出内容的列表
-
-        Returns:
-            bool: True=成功, False=连接断开
         """
         try:
             if isinstance(msg, AIMessage):
@@ -838,11 +806,11 @@ class DeepAgent:
                         args = tc.get("args", {})
                         tool_msg = self._format_tool_call(name, args)
                         if tool_msg:
-                            if not await self._safe_write(response, "\n\n"):
+                            if not await self._safe_write(response, "\n\n", data_type=DataTypeEnum.REASONING.value[0]):
                                 return False
-                            if not await self._safe_write(response, tool_msg, "info"):
+                            if not await self._safe_write(response, tool_msg, "info", data_type=DataTypeEnum.REASONING.value[0]):
                                 return False
-                            answer_collector.append(tool_msg)
+                            reasoning_data.append(tool_msg)
 
             elif isinstance(msg, ToolMessage):
                 name = getattr(msg, "name", "")
@@ -850,9 +818,9 @@ class DeepAgent:
                 tool_result_msg = self._format_tool_result(name, content_str)
                 if tool_result_msg:
                     msg_type = "error" if "error" in content_str.lower() else "info"
-                    if not await self._safe_write(response, tool_result_msg, msg_type):
+                    if not await self._safe_write(response, tool_result_msg, msg_type, data_type=DataTypeEnum.REASONING.value[0]):
                         return False
-                    answer_collector.append(tool_result_msg)
+                    reasoning_data.append(tool_result_msg)
 
             return True
         except Exception as e:

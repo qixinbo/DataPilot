@@ -155,6 +155,23 @@ export const useBusinessStore = defineStore('business-store', {
                             }),
                           )
                           break
+                        case 't15':
+                          if (typeof jsonChunk.data === 'string' && jsonChunk.data) {
+                            controller.enqueue(
+                              JSON.stringify({
+                                type: 'reasoning',
+                                content: jsonChunk.data,
+                              }),
+                            )
+                          } else if (jsonChunk.data && jsonChunk.data.content) {
+                            controller.enqueue(
+                              JSON.stringify({
+                                type: 'reasoning',
+                                content: jsonChunk.data.content,
+                              }),
+                            )
+                          }
+                          break
                         case 't02':
                           if (
                             jsonChunk.data

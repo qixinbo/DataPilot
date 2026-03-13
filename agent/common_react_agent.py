@@ -120,6 +120,7 @@ class CommonReactAgent:
 
         try:
             t02_answer_data = []
+            reasoning_data = []
 
             tools = []  # await self.client.get_tools()
 
@@ -303,11 +304,11 @@ class CommonReactAgent:
                     user_id = user_info.get("id")
                     rootspan.update_trace(session_id=session_id, user_id=user_id)
                     await self._stream_agent_response(
-                        agent, stream_args, response, task_id, t02_answer_data
+                        agent, stream_args, response, task_id, t02_answer_data, reasoning_data
                     )
             else:
                 await self._stream_agent_response(
-                    agent, stream_args, response, task_id, t02_answer_data
+                    agent, stream_args, response, task_id, t02_answer_data, reasoning_data
                 )
 
             # 只有在未取消的情况下才保存记录
@@ -323,6 +324,7 @@ class CommonReactAgent:
                     IntentEnum.COMMON_QA.value[0],
                     user_token,
                     file_list,
+                    reasoning_content="".join(reasoning_data),
                 )
 
         except asyncio.CancelledError:
@@ -349,7 +351,7 @@ class CommonReactAgent:
                 del self.running_tasks[task_id]
 
     async def _stream_agent_response(
-        self, agent, stream_args, response, task_id, t02_answer_data
+        self, agent, stream_args, response, task_id, t02_answer_data, reasoning_data
     ):
         """处理agent流式响应的核心逻辑"""
         async for message_chunk, metadata in agent.astream(**stream_args):
@@ -371,9 +373,16 @@ class CommonReactAgent:
             # 工具输出
             if metadata["langgraph_node"] == "tools":
                 tool_name = message_chunk.name or "未知工具"
-                tool_use = "> 调用工具:" + tool_name + "\n\n"
-                await response.write(self._create_response(tool_use))
-                t02_answer_data.append(tool_use)
+                tool_content = message_chunk.content or ""
+                tool_use = f"> 调用工具: {tool_name}\n\n结果: {tool_content}\n\n"
+                await response.write(
+                    self._create_response(
+                        tool_use, "continue", DataTypeEnum.REASONING.value[0]
+                    )
+                )
+                if hasattr(response, "flush"):
+                    await response.flush()
+                reasoning_data.append(tool_use)
                 continue
 
             # 输出最终结果
