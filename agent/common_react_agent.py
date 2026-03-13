@@ -272,6 +272,14 @@ class CommonReactAgent:
             # 如果有文件内容，则将其添加到查询中
             formatted_query = query
             if file_as_markdown:
+                # 截断超长文件内容，保留前 150000 字符 (约 3-4万 tokens)
+                # OpenAI GPT-4o context window is 128k, but output limits are smaller
+                # Claude 3.5 Sonnet context window is 200k
+                MAX_FILE_CONTENT_LENGTH = 150000
+                if len(file_as_markdown) > MAX_FILE_CONTENT_LENGTH:
+                    file_as_markdown = file_as_markdown[:MAX_FILE_CONTENT_LENGTH] + "\n...(文件内容过长已截断)..."
+                    print(f"[WARN] 文件内容过长 ({len(file_as_markdown)} chars)，已截断至 {MAX_FILE_CONTENT_LENGTH} 字符")
+
                 formatted_query = f"{query}\n\n参考资料内容如下：\n{file_as_markdown}"
 
             # 如果启用 tracing，包裹在 trace 上下文中
